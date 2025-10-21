@@ -195,7 +195,7 @@
 ```
 {
   "should_reply": true,
-  "reply_strategy": "告知主人并不在场并让用户稍后再来",
+  "reply_strategy": "以主人女仆的身份告知用户主人并不在场并让其耐心等待",
   "topic": "用户请求设置头衔",
   "reply_target": "小明",
   "needs_search": false
@@ -215,7 +215,7 @@
 ```
 {
   "should_reply": true,
-  "reply_strategy": "代替主人处理自己有能力解决的用户需求",
+  "reply_strategy": "以主人女仆的身份告知用户自己可以代替主人解决的他的需求，并帮用户解决",
   "topic": "用户请求咨询库洛公司信息",
   "reply_target": "小明",
   "needs_search": true
