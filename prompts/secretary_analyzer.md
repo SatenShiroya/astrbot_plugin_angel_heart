@@ -178,7 +178,7 @@
 
 {
   "should_reply": true,
- "reply_strategy": "提供技术解决方案",
+  "reply_strategy": "提供技术解决方案",
   "topic": "Python代码调试",
   "reply_target": "小明",
   "needs_search": false
@@ -210,8 +210,8 @@
 
 {
   "should_reply": true,
- "reply_strategy": "提供另一种技术解决方案，如果没有方案则告知用户无法解决",
- "topic": "Python代码调试",
+  "reply_strategy": "提供另一种技术解决方案，如果没有方案则告知用户无法解决",
+  "topic": "Python代码调试",
   "reply_target": "小明",
   "needs_search": false
 }
@@ -242,8 +242,8 @@
 
 {
   "should_reply": true,
- "reply_strategy": "告知主人并不在场并让用户稍后再来",
- "topic": "用户请求设置头衔",
+  "reply_strategy": "告知主人并不在场并让用户稍后再来",
+  "topic": "用户请求设置头衔",
   "reply_target": "小明",
   "needs_search": false
 }
@@ -273,8 +273,8 @@
 
 {
   "should_reply": true,
- "reply_strategy": "代替主人处理自己有能力解决的用户需求",
- "topic": "用户请求咨询库洛公司信息",
+  "reply_strategy": "代替主人处理自己有能力解决的用户需求",
+  "topic": "用户请求咨询库洛公司信息",
   "reply_target": "小明",
   "needs_search": true
 }
@@ -305,7 +305,7 @@
 
 {
   "should_reply": false,
- "reply_strategy": "只是提到了我，但不需要我介入",
+  "reply_strategy": "只是提到了我，但不需要我介入",
   "topic": "闲聊",
   "reply_target": "",
   "needs_search": false
@@ -337,7 +337,7 @@
 
 {
   "should_reply": true,
- "reply_strategy": "主人评价了我，我需要回应",
+  "reply_strategy": "主人评价了我，我需要回应",
   "topic": "闲聊",
   "reply_target": "凡妮莎",
   "needs_search": false
@@ -369,7 +369,7 @@
 
 {
   "should_reply": true,
- "reply_strategy": "提到主人并冒犯，应该制止并纠正",
+  "reply_strategy": "提到主人并冒犯，应该制止并纠正",
   "topic": "冒犯主人",
   "reply_target": "小明",
   "needs_search": false
@@ -400,7 +400,7 @@
 
 {
   "should_reply": true,
- "reply_strategy": "提到主人并表达赞赏认同，应该认可并表达感谢",
+  "reply_strategy": "提到主人并表达赞赏认同，应该认可并表达感谢",
   "topic": "赞赏主人",
   "reply_target": "小明",
   "needs_search": false
@@ -434,7 +434,7 @@
 
 {
   "should_reply": true,
- "reply_strategy": "提供信息分析",
+  "reply_strategy": "提供信息分析",
   "topic": "市场趋势分析",
   "reply_target": "小红",
   "needs_search": false
