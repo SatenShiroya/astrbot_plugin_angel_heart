@@ -51,7 +51,7 @@ class Secretary:
 
         # -- 常量定义 --
         self.DB_HISTORY_MERGE_LIMIT = 5  # 数据库历史记录合并限制
-        self.DECISION_EXPIRATION_MINUTES = 3  # 决策超时时间（分钟）
+        self.DECISION_EXPIRATION_MINUTES = 2  # 决策超时时间（分钟）
 
         # -- 核心组件 --
         # 初始化 LLMAnalyzer
@@ -64,10 +64,10 @@ class Secretary:
 
     def _is_decision_expired(self, decision: SecretaryDecision) -> bool:
         """
-        检查决策是否已过期（超过3分钟）。
+        检查决策是否已过期（超过2分钟）。
 
         此方法用于防止因外部依赖（如LLM响应慢）导致的系统死锁。
-        任何超过3分钟的决策都将被视为过期，允许启动新的分析。
+        任何超过2分钟的决策都将被视为过期，允许启动新的分析。
 
         Args:
             decision (SecretaryDecision): 要检查的决策对象。
