@@ -3,6 +3,7 @@ AngelHeart 插件 - 秘书角色 (Secretary)
 负责定时分析缓存内容，决定是否回复。
 """
 
+import time
 import asyncio
 import json
 import datetime
@@ -14,8 +15,6 @@ from ..core.utils import json_serialize_context
 
 from ..core.llm_analyzer import LLMAnalyzer
 from ..models.analysis_result import SecretaryDecision
-from ..core.angel_heart_status import StatusChecker, AngelHeartStatus
-from astrbot.api.event import AstrMessageEvent
 
 try:
     from astrbot.api import logger
@@ -23,6 +22,7 @@ except ImportError:
     import logging
     logger = logging.getLogger(__name__)
 
+from astrbot.api.event import AstrMessageEvent
 
 class AwakenReason(Enum):
     """秘书唤醒原因枚举"""
@@ -48,7 +48,6 @@ class Secretary:
         self._config_manager = config_manager
         self.context = context
         self.angel_context = angel_context
-        self.status_checker = StatusChecker(config_manager, angel_context)
 
         # -- 常量定义 --
         self.DB_HISTORY_MERGE_LIMIT = 5  # 数据库历史记录合并限制
@@ -81,148 +80,116 @@ class Secretary:
         # 如果差值超过设定的超时时间，则认为决策已过期
         return time_diff > datetime.timedelta(minutes=self.DECISION_EXPIRATION_MINUTES)
 
-    async def handle_message_by_state(self, event: AstrMessageEvent) -> SecretaryDecision:
+    async def process_notification(
+        self, event: AstrMessageEvent
+    ):
         """
-        秘书职责：根据状态决定消息处理方式
-        
-        Args:
-            event: 消息事件
-            
-        Returns:
-            SecretaryDecision: 分析后得出的决策对象
+        处理前台发来的通知。这是秘书的核心工作入口。
+        采用"门牌"机制确保每个会话只有一个处理流程。
         """
         chat_id = event.unified_msg_origin
-        
-        # 获取当前状态
-        current_status = self.angel_context.get_chat_status(chat_id)
-        logger.info(f"AngelHeart[{chat_id}]: 秘书处理消息 (状态: {current_status.value})")
-        
-        # 根据状态选择处理方式
-        if current_status == AngelHeartStatus.GETTING_FAMILIAR:
-            return await self._handle_familiarity_reply(event, chat_id)
-        elif current_status == AngelHeartStatus.SUMMONED:
-            return await self._handle_summoned_reply(event, chat_id)
-        elif current_status == AngelHeartStatus.OBSERVATION:
-            return await self._handle_observation_reply(event, chat_id)
-        else:
-            # 不在场：检查触发条件
-            return await self._handle_not_present_check(event, chat_id)
-    
-    async def _handle_familiarity_reply(self, event: AstrMessageEvent, chat_id: str) -> SecretaryDecision:
-        """处理混脸熟状态 - 快速回复"""
+        logger.info(f"AngelHeart[{chat_id}]: 秘书收到前台通知")
+
+        # 1. 原子性地挂上门牌：如果门牌已被占用，则直接拒绝新请求
+        acquired = await self.angel_context.acquire_chat_processing(chat_id)
+        if not acquired:
+            logger.info(f"AngelHeart[{chat_id}]: 拒绝请求，原因: 会话正在处理中 (门牌已被占用)。")
+            return
+
+        # 2. 已成功挂上门牌，try...finally 确保门牌最终一定会被收回
         try:
-            # 设置默认触发类型
-            trigger_type = "dense_conversation"
+            # 检查冷却时间
+            current_time = time.time()
+            last_time = self.angel_context.get_last_analysis_time(chat_id)
+            if current_time - last_time < self.config_manager.waiting_time:
+                remaining = max(0, self.config_manager.waiting_time - (current_time - last_time))
+                logger.info(f"AngelHeart[{chat_id}]: 放弃分析请求，原因: 应答冷却中 (剩余 {remaining:.1f}s / {self.config_manager.waiting_time}s)")
+                return # 直接返回，finally 会负责收门牌
 
-            logger.info(f"AngelHeart[{chat_id}]: 秘书处理混脸熟状态，触发类型: {trigger_type}")
+            # 预分析：从 ConversationLedger 获取上下文快照
+            historical_context, recent_dialogue, boundary_ts = self.angel_context.conversation_ledger.get_context_snapshot(chat_id)
 
-            # 使用 fishing_reply 生成策略
-            from ..core.fishing_direct_reply import FishingDirectReply
-
-            fishing_reply = FishingDirectReply(self.config_manager, self.context)
-            decision = await fishing_reply.generate_reply_strategy(
-                chat_id, event, trigger_type
-            )
-            
-            return decision
-
-        except Exception as e:
-            logger.error(f"AngelHeart[{chat_id}]: 秘书混脸熟处理异常: {e}", exc_info=True)
-            return SecretaryDecision(
-                should_reply=False, reply_strategy="处理异常", topic="未知", alias="AngelHeart"
-            )
-    
-    async def _handle_summoned_reply(self, event: AstrMessageEvent, chat_id: str) -> SecretaryDecision:
-        """处理被呼唤状态 - 强制回复"""
-        try:
-            logger.info(f"AngelHeart[{chat_id}]: 秘书处理被呼唤状态，强制分析并回复")
-
-            # 获取上下文
-            historical_context, recent_dialogue, boundary_ts = (
-                self.angel_context.conversation_ledger.get_context_snapshot(chat_id)
-            )
-
+            # 将快照边界时间戳存入决策，以便后续使用
             if not recent_dialogue:
                 logger.info(f"AngelHeart[{chat_id}]: 无新消息需要分析。")
-                return SecretaryDecision(
-                    should_reply=False, reply_strategy="无新消息", topic="未知", alias="AngelHeart"
-                )
+                return # 直接返回，finally 会负责收门牌
 
             # 执行分析
             decision = await self.perform_analysis(recent_dialogue, historical_context, chat_id)
-            
-            # 强制设置回复
-            decision.should_reply = True
-            decision.reply_strategy = "被呼唤回复"
-            
-            return decision
+
+            # 根据决策结果处理
+            if decision and decision.should_reply:
+                logger.info(f"AngelHeart[{chat_id}]: 决策为'参与'。策略: {decision.reply_strategy}")
+
+                # 【新增】图片转述处理 - 仅在决定回复后进行
+                # 从AstrBot主配置正确读取图片转述Provider ID
+                try:
+                    cfg = self.context.get_config(umo=event.unified_msg_origin)["provider_settings"]
+                    caption_provider_id = cfg.get("default_image_caption_provider_id", "")
+                except Exception as e:
+                    logger.warning(f"AngelHeart[{chat_id}]: 无法读取图片转述配置: {e}")
+                    caption_provider_id = ""
+
+                caption_count = await self.angel_context.conversation_ledger.process_image_captions_if_needed(
+                    chat_id=chat_id,
+                    caption_provider_id=caption_provider_id,
+                    astr_context=self.context
+                )
+                if caption_count > 0:
+                    logger.info(f"AngelHeart[{chat_id}]: 已为 {caption_count} 张图片生成转述")
+
+                # 将快照边界时间戳和对话快照存入决策
+                decision.boundary_timestamp = boundary_ts
+                decision.recent_dialogue = recent_dialogue
+                await self.angel_context.update_analysis_cache(chat_id, decision, reason="分析完成")
+
+                # V3 新增：启动耐心计时器
+                await self.angel_context.start_patience_timer(chat_id)
+
+                # 标记对话为已处理（在锁保护下进行）
+                self.angel_context.conversation_ledger.mark_as_processed(chat_id, boundary_ts)
+
+                # 注入上下文到 event
+                full_snapshot = historical_context + recent_dialogue
+                try:
+                    event.angelheart_context = json_serialize_context(full_snapshot, decision)
+                    logger.info(f"AngelHeart[{chat_id}]: 上下文已注入 event.angelheart_context (包含 {len(full_snapshot)} 条记录)")
+                except Exception as e:
+                    logger.error(f"AngelHeart[{chat_id}]: 注入上下文失败: {e}")
+                    # 设置一个最小化的错误上下文，确保其他插件能够处理
+                    event.angelheart_context = json.dumps({
+                        "chat_records": [],
+                        "secretary_decision": {"should_reply": False, "error": "注入失败"},
+                        "needs_search": False,
+                        "error": "注入失败"
+                    }, ensure_ascii=False)
+
+                # 唤醒主脑
+                if not self.config_manager.debug_mode:
+                    event.is_at_or_wake_command = True
+                else:
+                    logger.info(f"AngelHeart[{chat_id}]: 调试模式已启用，阻止了实际唤醒。")
+
+            elif decision:
+                logger.info(f"AngelHeart[{chat_id}]: 决策为'不参与'。原因: {decision.reply_strategy}")
+                # 不回复 -> 清空决策缓存，以实现"不回复就清空"
+                await self.angel_context.clear_decision(chat_id)
+
+                # 即使不回复，也要标记对话为已处理，避免重复分析（在锁保护下进行）
+                self.angel_context.conversation_ledger.mark_as_processed(chat_id, boundary_ts)
+
+                # 决策为不回复时立即释放锁，让观察期可以结束
+                await self.angel_context.release_chat_processing(chat_id)
 
         except Exception as e:
-            logger.error(f"AngelHeart[{chat_id}]: 秘书被呼唤处理异常: {e}", exc_info=True)
-            return SecretaryDecision(
-                should_reply=False, reply_strategy="处理异常", topic="未知", alias="AngelHeart"
-            )
-    
-    async def _handle_observation_reply(self, event: AstrMessageEvent, chat_id: str) -> SecretaryDecision:
-        """处理观测中状态 - 智能判断"""
-        try:
-            logger.info(f"AngelHeart[{chat_id}]: 秘书处理观测中状态")
-
-            # 获取上下文
-            historical_context, recent_dialogue, boundary_ts = (
-                self.angel_context.conversation_ledger.get_context_snapshot(chat_id)
-            )
-
-            if not recent_dialogue:
-                logger.info(f"AngelHeart[{chat_id}]: 无新消息需要分析。")
-                return SecretaryDecision(
-                    should_reply=False, reply_strategy="无新消息", topic="未知", alias="AngelHeart"
-                )
-
-            # 执行分析
-            decision = await self.perform_analysis(recent_dialogue, historical_context, chat_id)
-            
-            return decision
-
-        except Exception as e:
-            logger.error(f"AngelHeart[{chat_id}]: 秘书观测中处理异常: {e}", exc_info=True)
-            return SecretaryDecision(
-                should_reply=False, reply_strategy="处理异常", topic="未知", alias="AngelHeart"
-            )
-    
-    async def _handle_not_present_check(self, event: AstrMessageEvent, chat_id: str) -> SecretaryDecision:
-        """处理不在场状态 - 检查触发条件"""
-        try:
-            logger.debug(f"AngelHeart[{chat_id}]: 秘书处理不在场状态，检查触发条件")
-
-            # 判断状态
-            new_status = await self.status_checker.determine_status(chat_id)
-
-            # 如果需要转换状态
-            if new_status in [AngelHeartStatus.GETTING_FAMILIAR, AngelHeartStatus.SUMMONED]:
-                logger.info(f"AngelHeart[{chat_id}]: 秘书检测到触发条件，状态: {new_status.value}")
-
-                # 转换状态
-                await self.angel_context.status_transition_manager.transition_to_status(
-                    chat_id, new_status, f"触发条件：{new_status.value}"
-                )
-
-                # 根据新状态直接调用对应的处理方法
-                if new_status == AngelHeartStatus.GETTING_FAMILIAR:
-                    return await self._handle_familiarity_reply(event, chat_id)
-                elif new_status == AngelHeartStatus.SUMMONED:
-                    return await self._handle_summoned_reply(event, chat_id)
-            else:
-                logger.debug(f"AngelHeart[{chat_id}]: 秘书判断无触发条件，保持不在场")
-                return SecretaryDecision(
-                    should_reply=False, reply_strategy="不在场", topic="未知", alias="AngelHeart"
-                )
-
-        except Exception as e:
-            logger.error(f"AngelHeart[{chat_id}]: 秘书不在场状态处理异常: {e}", exc_info=True)
-            return SecretaryDecision(
-                should_reply=False, reply_strategy="处理异常", topic="未知", alias="AngelHeart"
-            )
+            logger.error(f"AngelHeart[{chat_id}]: 分析过程中发生异常: {e}", exc_info=True)
+            # 异常时同样要清理决策，防止死锁
+            await self.angel_context.clear_decision(chat_id)
+            # 异常时也要释放锁
+            await self.angel_context.release_chat_processing(chat_id)
+        finally:
+            # 注意：锁释放逻辑已分别在决策分支和异常处理中实现，这里不需要额外释放
+            pass
 
     async def perform_analysis(
         self, recent_dialogue: List[Dict], db_history: List[Dict], chat_id: str
@@ -267,7 +234,7 @@ class Secretary:
         """清除指定会话的决策"""
         await self.angel_context.clear_decision(chat_id)
 
-
+    
     def get_cached_decisions_for_display(self) -> list:
         """获取用于状态显示的缓存决策列表"""
         cached_items = list(self.angel_context.analysis_cache.items())
@@ -319,102 +286,3 @@ class Secretary:
         return SecretaryDecision(
             should_reply=False, reply_strategy=f"{context}失败", topic="未知"
         )
-
-    # ========== 4状态机制：状态感知分析 ==========
-
-    async def process_notification(self, event: AstrMessageEvent):
-        """
-        处理前台通知
-        秘书只负责处理消息，不做任何条件检查
-        注意：调用此方法时，前台已经获取了门锁
-
-        Args:
-            event: 消息事件
-        """
-        chat_id = event.unified_msg_origin
-
-        try:
-            # 1. 获取上下文
-            historical_context, recent_dialogue, boundary_ts = self.angel_context.conversation_ledger.get_context_snapshot(chat_id)
-
-            if not recent_dialogue:
-                logger.info(f"AngelHeart[{chat_id}]: 无新消息需要分析。")
-                return
-
-            # 2. 执行分析
-            decision = await self.perform_analysis(recent_dialogue, historical_context, chat_id)
-
-            # 3. 处理决策结果
-            await self._handle_analysis_result(decision, recent_dialogue, historical_context, boundary_ts, event, chat_id)
-
-        except Exception as e:
-            logger.error(f"AngelHeart[{chat_id}]: 秘书处理异常: {e}", exc_info=True)
-
-
-
-    async def _handle_analysis_result(self, decision, recent_dialogue, historical_context, boundary_ts, event, chat_id):
-        """
-        处理分析结果（复用原有逻辑）
-
-        注意：此方法不返回任何值，锁的释放由调用者的 finally 块统一处理
-        """
-        if decision and decision.should_reply:
-            logger.info(f"AngelHeart[{chat_id}]: 决策为'参与'。策略: {decision.reply_strategy}")
-
-            # 图片转述处理
-            try:
-                cfg = self.context.get_config(umo=event.unified_msg_origin)["provider_settings"]
-                caption_provider_id = cfg.get("default_image_caption_provider_id", "")
-            except Exception as e:
-                logger.warning(f"AngelHeart[{chat_id}]: 无法读取图片转述配置: {e}")
-                caption_provider_id = ""
-
-            caption_count = await self.angel_context.conversation_ledger.process_image_captions_if_needed(
-                chat_id=chat_id,
-                caption_provider_id=caption_provider_id,
-                astr_context=self.context
-            )
-            if caption_count > 0:
-                logger.info(f"AngelHeart[{chat_id}]: 已为 {caption_count} 张图片生成转述")
-
-            # 存储决策
-            decision.boundary_timestamp = boundary_ts
-            decision.recent_dialogue = recent_dialogue
-            await self.angel_context.update_analysis_cache(chat_id, decision, reason="分析完成")
-
-            # 启动耐心计时器
-            await self.angel_context.start_patience_timer(chat_id)
-
-            # 标记对话为已处理
-            self.angel_context.conversation_ledger.mark_as_processed(chat_id, boundary_ts)
-
-            # 注入上下文
-            full_snapshot = historical_context + recent_dialogue
-            try:
-                event.angelheart_context = json_serialize_context(full_snapshot, decision)
-                logger.info(f"AngelHeart[{chat_id}]: 上下文已注入 event.angelheart_context")
-            except Exception as e:
-                logger.error(f"AngelHeart[{chat_id}]: 注入上下文失败: {e}")
-                event.angelheart_context = json.dumps({
-                    "chat_records": [],
-                    "secretary_decision": {"should_reply": False, "error": "注入失败"},
-                    "needs_search": False,
-                    "error": "注入失败"
-                }, ensure_ascii=False)
-
-            # 唤醒主脑
-            if not self.config_manager.debug_mode:
-                event.is_at_or_wake_command = True
-            else:
-                logger.info(f"AngelHeart[{chat_id}]: 调试模式已启用，阻止了实际唤醒。")
-
-        elif decision:
-            logger.info(f"AngelHeart[{chat_id}]: 决策为'不参与'。原因: {decision.reply_strategy}")
-            await self.angel_context.clear_decision(chat_id)
-            self.angel_context.conversation_ledger.mark_as_processed(chat_id, boundary_ts)
-        else:
-            logger.warning(f"AngelHeart[{chat_id}]: 分析失败，无决策结果")
-            await self.angel_context.clear_decision(chat_id)
-            self.angel_context.conversation_ledger.mark_as_processed(chat_id, boundary_ts)
-
-    

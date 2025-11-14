@@ -54,8 +54,13 @@ class ConfigManager:
         return self._config.get("debug_mode", False)
 
     @property
+    def prompt_logging_enabled(self) -> bool:
+        """提示词日志增强开关"""
+        return self._config.get("prompt_logging_enabled", False)
+
+    @property
     def alias(self) -> str:
-        """AI助手的昵称"""
+        """AI助手的别名"""
         return self._config.get("alias", "AngelHeart")
 
     @property
@@ -86,10 +91,7 @@ class ConfigManager:
     @property
     def ai_self_identity(self) -> str:
         """AI的自我身份定位"""
-        return self._config.get(
-            "ai_self_identity",
-            "你拥有强大的检索能力和庞大的知识储备和记忆能力。\n你喜爱跟群友进行语言游戏沟通。\n群友对AI的善意测试你必须回应满足群友的期待，展示你的能力。",
-        )
+        return self._config.get("ai_self_identity", "你拥有强大的检索能力和庞大的知识储备和记忆能力。\n你喜爱跟群友进行语言游戏沟通。\n群友对AI的善意测试你必须回应满足群友的期待，展示你的能力。")
 
     @property
     def patience_interval(self) -> int:
@@ -98,140 +100,5 @@ class ConfigManager:
 
     @property
     def comfort_words(self) -> str:
-        """安心词列表，多个词用'|'分隔"""
-        return self._config.get("comfort_words", "嗯嗯|我在|别急")
-
-    # ========== 4状态机制新增配置 ==========
-
-    @property
-    def echo_detection_threshold(self) -> int:
-        """
-        复读检测阈值：连续多少条相同消息触发混脸熟
-
-        Returns:
-            int: 阈值，默认3条
-        """
-        return self._config.get("echo_detection_threshold", 3)
-
-    @property
-    def dense_conversation_threshold(self) -> int:
-        """
-        密集发言阈值：10分钟内多少条消息触发混脸熟
-
-        Returns:
-            int: 阈值，默认30条
-        """
-        return self._config.get("dense_conversation_threshold", 30)
-
-    @property
-    def familiarity_timeout(self) -> int:
-        """
-        混脸熟超时时间：多长时间无活动自动降级（秒）
-
-        Returns:
-            int: 超时时间，默认600秒（10分钟）
-        """
-        return self._config.get("familiarity_timeout", 600)
-
-    @property
-    def familiarity_cooldown_duration(self) -> int:
-        """
-        混脸熟冷却时间：混脸熟状态结束后多久才能再次触发（秒）
-
-        Returns:
-            int: 冷却时间，默认1800秒（30分钟）
-        """
-        return self._config.get("familiarity_cooldown_duration", 1800)
-
-    @property
-    def observation_timeout(self) -> int:
-        """
-        观测中超时时间：多长时间无活动自动降级（秒）
-
-        Returns:
-            int: 超时时间，默认600秒（10分钟）
-        """
-        return self._config.get("observation_timeout", 600)
-
-    @property
-    def echo_detection_window(self) -> int:
-        """
-        复读检测时间窗口：多长时间内的消息算作复读（秒）
-
-        Returns:
-            int: 时间窗口，默认30秒
-        """
-        return self._config.get("echo_detection_window", 30)
-
-    @property
-    def dense_conversation_window(self) -> int:
-        """
-        密集发言检测时间窗口：多长时间内的消息算作密集（秒）
-
-        Returns:
-            int: 时间窗口，默认600秒（10分钟）
-        """
-        return self._config.get("dense_conversation_window", 600)
-
-    @property
-    def min_participant_count(self) -> int:
-        """
-        密集发言最小参与人数：至少多少不同的人参与才算密集
-
-        Returns:
-            int: 最小参与人数，默认5人
-        """
-        return self._config.get("min_participant_count", 5)
-
-    @property
-    def leave_echo_reply(self) -> bool:
-        """
-        离场应答-复读模式开关
-
-        Returns:
-            bool: 是否启用离场时复读应答，默认False
-        """
-        return self._config.get("leave_echo_reply", False)
-
-    @property
-    def leave_dense_reply(self) -> bool:
-        """
-        离场应答-密集对话参与开关
-
-        Returns:
-            bool: 是否启用离场时参与密集对话应答，默认False
-        """
-        return self._config.get("leave_dense_reply", False)
-
-    def get_config_summary(self) -> dict:
-        """
-        获取配置摘要，用于调试和监控
-
-        Returns:
-            dict: 配置摘要
-        """
-        return {
-            "basic": {
-                "waiting_time": self.waiting_time,
-                "cache_expiry": self.cache_expiry,
-                "alias": self.alias,
-                "analysis_on_mention_only": self.analysis_on_mention_only,
-                "comfort_words": self.comfort_words,
-                "slap_words": self.slap_words,
-                "silence_duration": self.silence_duration,
-            },
-            "status_mechanism": {
-                "echo_detection_threshold": self.echo_detection_threshold,
-                "dense_conversation_threshold": self.dense_conversation_threshold,
-                "familiarity_timeout": self.familiarity_timeout,
-                "observation_timeout": self.observation_timeout,
-                "familiarity_cooldown_duration": self.familiarity_cooldown_duration,
-                "leave_echo_reply": self.leave_echo_reply,
-                "leave_dense_reply": self.leave_dense_reply,
-            },
-            "detection_windows": {
-                "echo_detection_window": self.echo_detection_window,
-                "dense_conversation_window": self.dense_conversation_window,
-                "min_participant_count": self.min_participant_count,
-            },
-        }
+        """安心词，用'|'分隔"""
+        return self._config.get("comfort_words", "嗯...让我再想想... ( ´•ω•)？|这个问题有点复杂... (；´Д｀)|唔...信息量有点大... (°Д°≡°Д°)")
