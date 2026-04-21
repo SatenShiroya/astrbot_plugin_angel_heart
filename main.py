@@ -245,6 +245,14 @@ class AngelHeartPlugin(Star):
         try:
             logger.debug(f"AngelHeart[{chat_id}]: 开始清洗消息链中的Markdown格式...")
 
+             # -- 新增：增加空值检查 --
+            result = event.get_result()
+            if not result or not hasattr(result, 'chain') or not result.chain:
+                # 如果结果为空、没有chain属性或chain本身就是空的，说明上一步处理失败或无输出
+                # 直接返回，避免后续代码报错
+                logger.debug(f"AngelHeart[{chat_id}]: 消息链为空，跳过清洗步骤。")
+                return
+
             # 从 event 对象中获取消息链
             message_chain = event.get_result().chain
 
